@@ -55,6 +55,7 @@ export interface LemonadeModel {
 	recipe_options?: {
 		ctx_size?: number;
 	};
+	labels?: string[];
 }
 
 /**
