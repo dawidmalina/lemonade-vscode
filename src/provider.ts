@@ -39,6 +39,8 @@ function resolveContextLength(): number {
  */
 export class LemonadeChatModelProvider implements LanguageModelChatProvider {
 	private _chatEndpoints: { model: string; modelMaxPromptTokens: number }[] = [];
+	/** Endpoint each model info object was built from; chat receives the same object back. */
+	private _endpointByModel = new WeakMap<LanguageModelChatInformation, LemonadeEndpoint>();
 	/** Buffer for assembling streamed tool calls by index. */
 	private _toolCallBuffers: Map<number, { id?: string; name?: string; args: string }> = new Map<
 		number,
@@ -106,10 +108,11 @@ export class LemonadeChatModelProvider implements LanguageModelChatProvider {
 	 * endpoints are swallowed so healthy nodes still appear.
 	 */
 	async prepareLanguageModelChatInformation(
-		options: { silent: boolean },
+		options: { silent: boolean; group?: string; configuration?: { readonly [key: string]: unknown } },
 		_token: CancellationToken
 	): Promise<LanguageModelChatInformation[]> {
-		const endpoints = await this.getEndpoints();
+		const groupEndpoint = this.endpointFromConfiguration(options.group, options.configuration);
+		const endpoints = groupEndpoint ? [groupEndpoint] : await this.getEndpoints();
 		const fallbackContextLength = resolveContextLength();
 
 		// Fetch models from all endpoints concurrently; ignore per-endpoint errors
@@ -127,7 +130,8 @@ export class LemonadeChatModelProvider implements LanguageModelChatProvider {
 		const infos: LanguageModelChatInformation[] = [];
 		for (const { ep, models } of results) {
 			for (const model of models) {
-				const id = `${ep.shortname}/${model.id}`;
+				// Group-configured endpoints are resolved via _endpointByModel, so the raw id is used.
+				const id = groupEndpoint ? model.id : `${ep.shortname}/${model.id}`;
 				const rawCtxSize = model?.recipe_options?.ctx_size;
 				const contextLength =
 					typeof rawCtxSize === "number" && Number.isFinite(rawCtxSize) && rawCtxSize > 0
@@ -136,7 +140,7 @@ export class LemonadeChatModelProvider implements LanguageModelChatProvider {
 				// maxInputTokens + maxOutputTokens must not exceed the model's context window
 				const maxOutput = Math.min(DEFAULT_MAX_OUTPUT_TOKENS, Math.max(1, contextLength - 1));
 				const maxInput = Math.max(1, contextLength - maxOutput);
-				infos.push({
+				const info = {
 					id,
 					name: id,
 					tooltip: `Lemonade node: ${ep.url}`,
@@ -148,7 +152,9 @@ export class LemonadeChatModelProvider implements LanguageModelChatProvider {
 						toolCalling: true,
 						imageInput: false,
 					},
-				} satisfies LanguageModelChatInformation);
+				} satisfies LanguageModelChatInformation;
+				this._endpointByModel.set(info, ep);
+				infos.push(info);
 			}
 		}
 
@@ -167,10 +173,21 @@ export class LemonadeChatModelProvider implements LanguageModelChatProvider {
 	}
 
 	async provideLanguageModelChatInformation(
-		options: { silent: boolean },
+		options: { silent: boolean; group?: string; configuration?: { readonly [key: string]: unknown } },
 		_token: CancellationToken
 	): Promise<LanguageModelChatInformation[]> {
-		return this.prepareLanguageModelChatInformation({ silent: options.silent ?? false }, _token);
+		return this.prepareLanguageModelChatInformation({ ...options, silent: options.silent ?? false }, _token);
+	}
+
+	/** Build an endpoint from a provider group's configuration (declared in package.json). */
+	private endpointFromConfiguration(
+		group: string | undefined,
+		configuration: { readonly [key: string]: unknown } | undefined
+	): LemonadeEndpoint | undefined {
+		const url = typeof configuration?.url === "string" ? configuration.url.trim().replace(/\/+$/, "") : "";
+		if (!url) { return undefined; }
+		const apiKey = typeof configuration?.apiKey === "string" ? configuration.apiKey.trim() : "";
+		return { shortname: group ?? "default", url, ...(apiKey ? { apiKey } : {}) };
 	}
 
 	/**
@@ -274,13 +291,15 @@ export class LemonadeChatModelProvider implements LanguageModelChatProvider {
 			},
 		};
 		try {
-			// Decode "<shortname>/<modelId>" from the model id
-			const slashIdx = model.id.indexOf("/");
+			const mappedEndpoint = this._endpointByModel.get(model);
+			// Decode "<shortname>/<modelId>" only for legacy stored endpoints
+			const slashIdx = mappedEndpoint ? -1 : model.id.indexOf("/");
 			const shortname = slashIdx >= 0 ? model.id.slice(0, slashIdx) : "default";
 			const realModelId = slashIdx >= 0 ? model.id.slice(slashIdx + 1) : model.id;
 
 			const endpoints = await this.getEndpoints();
-			const endpoint = endpoints.find(ep => ep.shortname === shortname)
+			const endpoint = mappedEndpoint
+				?? endpoints.find(ep => ep.shortname === shortname)
 				?? endpoints[0]
 				?? { shortname: "default", url: DEFAULT_BASE_URL };
 

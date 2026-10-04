@@ -10,7 +10,7 @@
 	},
 	"version": "0.0.9",
 	"engines": {
-		"vscode": "^1.104.0"
+		"vscode": "^1.109.0"
 	},
 	"categories": [
 		"AI",
@@ -37,7 +37,24 @@
 			{
 				"vendor": "lemonade",
 				"displayName": "Lemonade",
-				"managementCommand": "lemonade.manage"
+				"configuration": {
+					"type": "object",
+					"properties": {
+						"url": {
+							"type": "string",
+							"title": "Server URL",
+							"description": "Lemonade server URL, e.g. http://localhost:13305/api/v1",
+							"default": "http://localhost:13305/api/v1"
+						},
+						"apiKey": {
+							"type": "string",
+							"title": "API Key",
+							"description": "Optional API key. Leave empty to use the default.",
+							"secret": true
+						}
+					},
+					"required": ["url"]
+				}
 			}
 		],
 		"commands": [
