@@ -11,12 +11,49 @@ import {
 
 import { convertTools, convertMessages, tryParseJSONObject, validateRequest } from "./utils";
 import type { LemonadeEndpoint, LemonadeModel, LemonadeModelsResponse } from "./types";
+import { resolveModelContextLengths } from "./modelContext";
 
 const DEFAULT_BASE_URL = "http://localhost:13305/api/v1";
 const DEFAULT_MAX_OUTPUT_TOKENS = 16000;
 const DEFAULT_CONTEXT_LENGTH = 128000;
 const DEFAULT_API_KEY = "lemonade";
 const ENDPOINTS_SECRET_KEY = "lemonade.endpoints";
+
+const REASONING_LEVEL_LABELS: Record<string, string> = {
+	none: "None",
+	low: "Low",
+	medium: "Medium",
+	high: "High",
+};
+
+/**
+ * Resolve supported reasoning effort levels for a model. The `lemonade.reasoningEfforts`
+ * setting maps a case-insensitive substring of the model id to its levels; "*" is the
+ * fallback and only applies to models labelled "reasoning". An empty list disables the picker.
+ */
+function resolveReasoningLevels(modelId: string, labels: string[] | undefined): string[] | undefined {
+	const map = vscode.workspace.getConfiguration("lemonade").get<Record<string, string[]>>("reasoningEfforts") ?? {};
+	const id = modelId.toLowerCase();
+	const key = Object.keys(map).find((k) => k !== "*" && id.includes(k.toLowerCase()));
+	const levels = key !== undefined ? map[key] : labels?.includes("reasoning") ? map["*"] : undefined;
+	return Array.isArray(levels) && levels.length > 0 ? levels : undefined;
+}
+
+function buildConfigurationSchema(levels: string[]) {
+	return {
+		properties: {
+			reasoningEffort: {
+				type: "string",
+				title: "Reasoning",
+				description: "Reasoning effort sent to the Lemonade server as reasoning_effort.",
+				enum: levels,
+				enumItemLabels: levels.map((l) => REASONING_LEVEL_LABELS[l] ?? l),
+				default: levels.includes("medium") ? "medium" : levels[0],
+				group: "navigation",
+			},
+		},
+	};
+}
 
 /**
  * Resolve the context length to use. Reads LEMONADE_CTX_SIZE from the
@@ -38,6 +75,14 @@ function resolveContextLength(): number {
  * VS Code Chat provider backed by Lemonade local LLM server.
  */
 export class LemonadeChatModelProvider implements LanguageModelChatProvider {
+	private readonly _onDidChange = new vscode.EventEmitter<void>();
+	readonly onDidChangeLanguageModelChatInformation = this._onDidChange.event;
+
+	/** Ask VS Code to re-query the model list (e.g. after settings change). */
+	refresh(): void {
+		this._onDidChange.fire();
+	}
+
 	private _chatEndpoints: { model: string; modelMaxPromptTokens: number }[] = [];
 	/** Endpoint each model info object was built from; chat receives the same object back. */
 	private _endpointByModel = new WeakMap<LanguageModelChatInformation, LemonadeEndpoint>();
@@ -120,26 +165,37 @@ export class LemonadeChatModelProvider implements LanguageModelChatProvider {
 			endpoints.map(async (ep) => {
 				try {
 					const models = await this.fetchModels(ep);
-					return { ep, models };
+					const contextSignal = AbortSignal.timeout(2500);
+					const contextLengths = await resolveModelContextLengths(
+						models, fallbackContextLength, async (path) => {
+							const response = await fetch(`${ep.url}${path}`, {
+								method: "GET",
+								headers: {
+									Authorization: `Bearer ${ep.apiKey || DEFAULT_API_KEY}`,
+									"User-Agent": this.userAgent,
+								},
+								signal: contextSignal,
+							});
+							return response.ok ? response.json() : undefined;
+						}
+					);
+					return { ep, models, contextLengths };
 				} catch {
-					return { ep, models: [] as LemonadeModel[] };
+					return { ep, models: [] as LemonadeModel[], contextLengths: [] as number[] };
 				}
 			})
 		);
 
 		const infos: LanguageModelChatInformation[] = [];
-		for (const { ep, models } of results) {
-			for (const model of models) {
+		for (const { ep, models, contextLengths } of results) {
+			for (const [index, model] of models.entries()) {
 				// Group-configured endpoints are resolved via _endpointByModel, so the raw id is used.
 				const id = groupEndpoint ? model.id : `${ep.shortname}/${model.id}`;
-				const rawCtxSize = model?.recipe_options?.ctx_size;
-				const contextLength =
-					typeof rawCtxSize === "number" && Number.isFinite(rawCtxSize) && rawCtxSize > 0
-						? rawCtxSize
-						: fallbackContextLength;
-				// maxInputTokens + maxOutputTokens must not exceed the model's context window
-				const maxOutput = Math.min(DEFAULT_MAX_OUTPUT_TOKENS, Math.max(1, contextLength - 1));
+				const contextLength = contextLengths[index];
+				// Preserve a usable input budget even when auto-tuning selects a small context.
+				const maxOutput = Math.min(DEFAULT_MAX_OUTPUT_TOKENS, Math.max(1, Math.floor(contextLength / 2)));
 				const maxInput = Math.max(1, contextLength - maxOutput);
+				const levels = resolveReasoningLevels(model.id, model.labels);
 				const info = {
 					id,
 					name: id,
@@ -152,6 +208,8 @@ export class LemonadeChatModelProvider implements LanguageModelChatProvider {
 						toolCalling: true,
 						imageInput: false,
 					},
+					// Proposed API (chatProvider): renders a reasoning picker in the model menu.
+					...(levels ? { configurationSchema: buildConfigurationSchema(levels) } : {}),
 				} satisfies LanguageModelChatInformation;
 				this._endpointByModel.set(info, ep);
 				infos.push(info);
@@ -348,6 +406,16 @@ export class LemonadeChatModelProvider implements LanguageModelChatProvider {
 				if (typeof mo.presence_penalty === "number") {
 					(requestBody as Record<string, unknown>).presence_penalty = mo.presence_penalty;
 				}
+			}
+
+			const modelConfiguration = (options as { modelConfiguration?: Record<string, unknown> }).modelConfiguration;
+			const pickerEffort = modelConfiguration?.reasoningEffort;
+			const settingEffort = vscode.workspace.getConfiguration("lemonade").get<string>("reasoningEffort");
+			const effort = typeof pickerEffort === "string" && pickerEffort ? pickerEffort : settingEffort;
+			if (typeof effort === "string" && effort) {
+				(requestBody as Record<string, unknown>).reasoning_effort = effort;
+				// Per-request kwargs take precedence over server-level --chat-template-kwargs.
+				(requestBody as Record<string, unknown>).chat_template_kwargs = { reasoning_effort: effort };
 			}
 
 			if (toolConfig.tools) {

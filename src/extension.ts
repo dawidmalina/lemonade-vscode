@@ -14,6 +14,13 @@ export function activate(context: vscode.ExtensionContext) {
 	const provider = new LemonadeChatModelProvider(context.secrets, ua);
 	// Register the Lemonade provider under the vendor id used in package.json
 	vscode.lm.registerLanguageModelChatProvider("lemonade", provider);
+	context.subscriptions.push(
+		vscode.workspace.onDidChangeConfiguration((e) => {
+			if (e.affectsConfiguration("lemonade.reasoningEfforts")) {
+				provider.refresh();
+			}
+		})
+	);
 
 	// Management command to configure server settings
 	context.subscriptions.push(

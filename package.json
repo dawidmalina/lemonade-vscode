@@ -57,6 +57,28 @@
 				}
 			}
 		],
+		"configuration": {
+			"title": "Lemonade",
+			"properties": {
+				"lemonade.reasoningEffort": {
+					"type": "string",
+					"enum": ["", "none", "low", "medium", "high"],
+					"default": "",
+					"markdownDescription": "Reasoning effort sent to the server as `reasoning_effort`. Leave empty to use the server default. Overridden by the model picker when the `chatProvider` API is available."
+				},
+				"lemonade.reasoningEfforts": {
+					"type": "object",
+					"default": {
+						"*": ["none", "low", "medium", "high"]
+					},
+					"additionalProperties": {
+						"type": "array",
+						"items": { "type": "string" }
+					},
+					"markdownDescription": "Reasoning effort levels shown in the model picker. Keys are case-insensitive substrings of the model id (e.g. `\"gpt-oss\": [\"low\", \"medium\", \"high\"]`); `\"*\"` applies to all models labelled `reasoning`. An empty array hides the picker for matching models."
+				}
+			}
+		},
 		"commands": [
 			{
 				"command": "lemonade.manage",

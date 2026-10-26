@@ -272,6 +272,40 @@ suite("Lemonade Chat Provider Extension", () => {
 			}
 		});
 
+		test("prepareLanguageModelChatInformation keeps input capacity for an auto-tuned small context", async () => {
+			const originalFetch = global.fetch;
+			const endpoints: LemonadeEndpoint[] = [
+				{ shortname: "node", url: "http://localhost:13305/api/v1" },
+			];
+			try {
+				(global as unknown as Record<string, unknown>).fetch = async (url: string) => ({
+					ok: true,
+					json: async () => {
+						if (url.endsWith("/models")) {
+							return { data: [{ id: "auto", object: "model", recipe_options: { ctx_size: -1 }, context_length: 262144 }] };
+						}
+						if (url.endsWith("/health")) return { all_models_loaded: [] };
+						if (url.endsWith("/models/auto/options")) return { resolved_ctx_size: 8192 };
+						throw new Error(`Unexpected URL ${url}`);
+					},
+				});
+				const provider = new LemonadeChatModelProvider({
+					get: async (k: string) => k === "lemonade.endpoints" ? JSON.stringify(endpoints) : undefined,
+					store: async () => {},
+					delete: async () => {},
+					onDidChange: (_listener: unknown) => ({ dispose() {} }),
+				} as unknown as vscode.SecretStorage, "test/test");
+				const infos = await provider.prepareLanguageModelChatInformation(
+					{ silent: true }, new vscode.CancellationTokenSource().token
+				);
+				assert.equal(infos.length, 1);
+				assert.equal(infos[0].maxInputTokens, 4096);
+				assert.equal(infos[0].maxOutputTokens, 4096);
+			} finally {
+				(global as unknown as Record<string, unknown>).fetch = originalFetch;
+			}
+		});
+
 		test("provideLanguageModelChatResponse reports reasoning_content as thinking", async function () {
 			const ThinkingPart = (vscode as unknown as Record<string, unknown>)["LanguageModelThinkingPart"] as
 				| (new (...args: unknown[]) => object)

@@ -52,9 +52,12 @@ export interface LemonadeModel {
 	object: string;
 	created?: number;
 	owned_by?: string;
+	recipe?: string;
+	context_length?: number;
 	recipe_options?: {
 		ctx_size?: number;
 	};
+	labels?: string[];
 }
 
 /**
