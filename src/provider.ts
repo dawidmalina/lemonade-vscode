@@ -157,7 +157,7 @@ export class LemonadeChatModelProvider implements LanguageModelChatProvider {
 		_token: CancellationToken
 	): Promise<LanguageModelChatInformation[]> {
 		const groupEndpoint = this.endpointFromConfiguration(options.group, options.configuration);
-		const endpoints = groupEndpoint ? [groupEndpoint] : await this.getEndpoints();
+		const endpoints = groupEndpoint ? [groupEndpoint] : await this.getEndpoints({ includeDefault: false });
 		const fallbackContextLength = resolveContextLength();
 
 		// Fetch models from all endpoints concurrently; ignore per-endpoint errors
@@ -254,7 +254,8 @@ export class LemonadeChatModelProvider implements LanguageModelChatProvider {
 	 * endpoint when nothing has been configured yet, and migrates legacy
 	 * single-URL secrets on first access.
 	 */
-	async getEndpoints(): Promise<LemonadeEndpoint[]> {
+	async getEndpoints(options: { includeDefault?: boolean } = {}): Promise<LemonadeEndpoint[]> {
+		const includeDefault = options.includeDefault ?? true;
 		// Migration: promote legacy single-URL secrets to the new format
 		const legacyUrl = await this.secrets.get("lemonade.serverUrl");
 		if (legacyUrl) {
@@ -282,7 +283,8 @@ export class LemonadeChatModelProvider implements LanguageModelChatProvider {
 			}
 		}
 
-		// No config yet — return built-in default so extension works out of the box
+		// Listing skips the built-in default: it would duplicate a localhost server added through the form
+		if (!includeDefault) { return []; }
 		return [{ shortname: "default", url: DEFAULT_BASE_URL }];
 	}
 
