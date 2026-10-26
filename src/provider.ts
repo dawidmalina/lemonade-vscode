@@ -198,7 +198,8 @@ export class LemonadeChatModelProvider implements LanguageModelChatProvider {
 				const levels = resolveReasoningLevels(model.id, model.labels);
 				const info = {
 					id,
-					name: id,
+					// Only disambiguate with the endpoint name when several endpoints are listed together.
+					name: results.length > 1 ? id : model.id,
 					tooltip: `Lemonade node: ${ep.url}`,
 					family: "lemonade",
 					version: "1.0.0",
