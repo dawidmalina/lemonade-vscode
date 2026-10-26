@@ -85,7 +85,7 @@ export class LemonadeChatModelProvider implements LanguageModelChatProvider {
 
 	private _chatEndpoints: { model: string; modelMaxPromptTokens: number }[] = [];
 	/** Endpoint each model info object was built from; chat receives the same object back. */
-	private _endpointByModel = new WeakMap<LanguageModelChatInformation, LemonadeEndpoint>();
+	private _endpointByModel = new WeakMap<LanguageModelChatInformation, { endpoint: LemonadeEndpoint; modelId: string }>();
 	/** Buffer for assembling streamed tool calls by index. */
 	private _toolCallBuffers: Map<number, { id?: string; name?: string; args: string }> = new Map<
 		number,
@@ -211,7 +211,7 @@ export class LemonadeChatModelProvider implements LanguageModelChatProvider {
 					// Proposed API (chatProvider): renders a reasoning picker in the model menu.
 					...(levels ? { configurationSchema: buildConfigurationSchema(levels) } : {}),
 				} satisfies LanguageModelChatInformation;
-				this._endpointByModel.set(info, ep);
+				this._endpointByModel.set(info, { endpoint: ep, modelId: model.id });
 				infos.push(info);
 			}
 		}
@@ -349,14 +349,14 @@ export class LemonadeChatModelProvider implements LanguageModelChatProvider {
 			},
 		};
 		try {
-			const mappedEndpoint = this._endpointByModel.get(model);
-			// Decode "<shortname>/<modelId>" only for legacy stored endpoints
-			const slashIdx = mappedEndpoint ? -1 : model.id.indexOf("/");
+			const mapped = this._endpointByModel.get(model);
+			// Fall back to decoding "<shortname>/<modelId>" when the info object is unknown
+			const slashIdx = mapped ? -1 : model.id.indexOf("/");
 			const shortname = slashIdx >= 0 ? model.id.slice(0, slashIdx) : "default";
-			const realModelId = slashIdx >= 0 ? model.id.slice(slashIdx + 1) : model.id;
+			const realModelId = mapped?.modelId ?? (slashIdx >= 0 ? model.id.slice(slashIdx + 1) : model.id);
 
 			const endpoints = await this.getEndpoints();
-			const endpoint = mappedEndpoint
+			const endpoint = mapped?.endpoint
 				?? endpoints.find(ep => ep.shortname === shortname)
 				?? endpoints[0]
 				?? { shortname: "default", url: DEFAULT_BASE_URL };
