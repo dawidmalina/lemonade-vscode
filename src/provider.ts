@@ -9,7 +9,7 @@ import {
 	Progress,
 } from "vscode";
 
-import { convertTools, convertMessages, filterModels, validateRequest } from "./utils";
+import { convertTools, convertMessages, filterModels, findMissingModels, validateRequest } from "./utils";
 import { ChatStreamParser } from "./streamParser";
 import type { LemonadeEndpoint, LemonadeModel, LemonadeModelsResponse } from "./types";
 import { resolveModelContextLengths } from "./modelContext";
@@ -134,7 +134,14 @@ export class LemonadeChatModelProvider implements LanguageModelChatProvider {
 		const results = await Promise.all(
 			endpoints.map(async (ep) => {
 				try {
-					const models = filterModels(await this.fetchModels(ep), ep.models);
+					const serverModels = await this.fetchModels(ep);
+					const models = filterModels(serverModels, ep.models);
+					const missing = findMissingModels(serverModels, ep.models);
+					if (missing.length > 0) {
+						console.warn(`[Lemonade Model Provider] Endpoint "${ep.shortname}" (${ep.url}) did not return allow-listed models: ${missing.join(", ")}`);
+					}
+					// The server answered with models, but the allow-list filtered all of them out.
+					const allowListMismatch = models.length === 0 && serverModels.length > 0 ? missing : undefined;
 					const contextSignal = AbortSignal.timeout(2500);
 					const contextLengths = await resolveModelContextLengths(
 						models, fallbackContextLength, async (path) => {
@@ -149,9 +156,9 @@ export class LemonadeChatModelProvider implements LanguageModelChatProvider {
 							return response.ok ? response.json() : undefined;
 						}
 					);
-					return { ep, models, contextLengths };
+					return { ep, models, contextLengths, allowListMismatch };
 				} catch {
-					return { ep, models: [] as LemonadeModel[], contextLengths: [] as number[] };
+					return { ep, models: [] as LemonadeModel[], contextLengths: [] as number[], allowListMismatch: undefined };
 				}
 			})
 		);
@@ -188,9 +195,16 @@ export class LemonadeChatModelProvider implements LanguageModelChatProvider {
 		}
 
 		if (infos.length === 0 && !options.silent) {
-			vscode.window.showWarningMessage(
-				"No models available from any Lemonade endpoint. Make sure at least one server is running. You can download it from lemonade-server.ai."
-			);
+			const mismatched = results.flatMap((r) => r.allowListMismatch ? [`${r.ep.shortname} (${r.allowListMismatch.join(", ")})`] : []);
+			if (mismatched.length > 0) {
+				vscode.window.showWarningMessage(
+					`None of the allow-listed models were found on the Lemonade server. Not returned: ${mismatched.join("; ")}. Check the "models" names in your configuration; they must match the server's model ids exactly.`
+				);
+			} else {
+				vscode.window.showWarningMessage(
+					"No models available from any Lemonade endpoint. Make sure at least one server is running. You can download it from lemonade-server.ai."
+				);
+			}
 		}
 
 		this._chatEndpoints = infos.map((info) => ({

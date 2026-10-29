@@ -398,3 +398,14 @@ export function filterModels(models: readonly LemonadeModel[], allowed: readonly
 	const ids = new Set(allowed);
 	return models.filter((model) => ids.has(model.id));
 }
+
+/**
+ * Return allow-list entries the server did not report, in allow-list order without duplicates.
+ */
+export function findMissingModels(models: readonly LemonadeModel[], allowed: readonly string[] | undefined): string[] {
+	if (!allowed || allowed.length === 0) {
+		return [];
+	}
+	const ids = new Set(models.map((model) => model.id));
+	return [...new Set(allowed)].filter((id) => !ids.has(id));
+}

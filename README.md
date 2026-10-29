@@ -52,7 +52,7 @@ If the server form does not show a **Models** field, add it to the Lemonade entr
 	"models": ["Qwen3-Coder-30B-A3B-Instruct-GGUF", "Qwen3.5-2B-GGUF-Q8_0"]
 }
 ```
-Remove `models` to show every model again. This applies to servers added through the provider form, not through the older `lemonade.manage` command.
+Names must match the server's model ids exactly. If none of them match, a warning lists the names the server did not return. Remove `models` to show every model again. This applies to servers added through the provider form, not through the older `lemonade.manage` command.
 
 ### Environment Variables
 
