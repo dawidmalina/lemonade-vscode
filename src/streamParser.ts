@@ -193,7 +193,7 @@ export class ChatStreamParser {
 	 * This handles older-style control tokens like <tool_call> and <function=...
 	 */
 	private stripControlTokensWithBuffering(text: string): string {
-		let data = this._controlTokenBuffer + text;
+		const data = this._controlTokenBuffer + text;
 		let result = "";
 		let pos = 0;
 

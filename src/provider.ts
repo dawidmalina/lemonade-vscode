@@ -123,7 +123,7 @@ export class LemonadeChatModelProvider implements LanguageModelChatProvider {
 	 * endpoints are swallowed so healthy nodes still appear.
 	 */
 	async prepareLanguageModelChatInformation(
-		options: { silent: boolean; group?: string; configuration?: { readonly [key: string]: unknown } },
+		options: { silent: boolean; group?: string; configuration?: Readonly<Record<string, unknown>> },
 		_token: CancellationToken
 	): Promise<LanguageModelChatInformation[]> {
 		const groupEndpoint = this.endpointFromConfiguration(options.group, options.configuration);
@@ -216,7 +216,7 @@ export class LemonadeChatModelProvider implements LanguageModelChatProvider {
 	}
 
 	async provideLanguageModelChatInformation(
-		options: { silent: boolean; group?: string; configuration?: { readonly [key: string]: unknown } },
+		options: { silent: boolean; group?: string; configuration?: Readonly<Record<string, unknown>> },
 		_token: CancellationToken
 	): Promise<LanguageModelChatInformation[]> {
 		return this.prepareLanguageModelChatInformation({ ...options, silent: options.silent ?? false }, _token);
@@ -225,7 +225,7 @@ export class LemonadeChatModelProvider implements LanguageModelChatProvider {
 	/** Build an endpoint from a provider group's configuration (declared in package.json). */
 	private endpointFromConfiguration(
 		group: string | undefined,
-		configuration: { readonly [key: string]: unknown } | undefined
+		configuration: Readonly<Record<string, unknown>> | undefined
 	): LemonadeEndpoint | undefined {
 		const url = typeof configuration?.url === "string" ? configuration.url.trim().replace(/\/+$/, "") : "";
 		if (!url) { return undefined; }
@@ -379,11 +379,13 @@ export class LemonadeChatModelProvider implements LanguageModelChatProvider {
                 throw new Error("Message exceeds token limit.");
             }
 
+			const maxOutputTokens = model.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS;
+			const requestedTokens = options.modelOptions?.max_tokens;
             requestBody = {
                 model: realModelId,
                 messages: openaiMessages,
                 stream: true,
-                max_tokens: Math.min(options.modelOptions?.max_tokens || 4096, model.maxOutputTokens),
+                max_tokens: requestedTokens ? Math.min(requestedTokens, maxOutputTokens) : maxOutputTokens,
                 temperature: options.modelOptions?.temperature ?? 0.7,
             };
 
