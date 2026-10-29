@@ -143,7 +143,7 @@ function sanitizeSchema(input: unknown, propName?: string): Record<string, unkno
  */
 export function convertMessages(
 	messages: readonly vscode.LanguageModelChatRequestMessage[],
-	filterEphemeral: boolean = true
+	filterEphemeral = true
 ): OpenAIChatMessage[] {
 	const out: OpenAIChatMessage[] = [];
 	for (const m of messages) {
@@ -331,7 +331,7 @@ function mapRole(message: vscode.LanguageModelChatRequestMessage): Exclude<OpenA
  */
 function collectToolResultText(
 	pr: { content?: ReadonlyArray<unknown> },
-	filterEphemeral: boolean = true
+	filterEphemeral = true
 ): string {
 	let text = "";
 	for (const c of pr.content ?? []) {
